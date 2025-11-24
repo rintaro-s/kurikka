@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clicker Clicker Clicker</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div id="game-container">
+      <div id="top-bar">
+        <div class="stat">
+          <span class="label">STAGE:</span>
+          <span id="stage">1</span>
+        </div>
+        <div class="stat">
+          <span class="label">COIN:</span>
+          <span id="coins">0</span>
+        </div>
+        <div class="stat">
+          <span class="label">TYPE:</span>
+          <span id="type-count">0</span>
+        </div>
+        <div class="stat">
+          <span class="label">CLICK:</span>
+          <span id="click-count">0</span>
+        </div>
+        <button id="menu-btn" class="pixel-btn">MENU</button>
+      </div>
+
+      <canvas id="game-canvas" width="1200" height="600"></canvas>
+
+      <div id="base-stats">
+        <div class="base-stat">
+          <span class="label">YOUR BASE:</span>
+          <div class="hp-bar">
+            <div id="player-hp-bar" class="hp-fill"></div>
+          </div>
+          <span id="player-hp-text">1000/1000</span>
+        </div>
+        <div class="base-stat">
+          <span class="label">ENEMY BASE:</span>
+          <div class="hp-bar">
+            <div id="enemy-hp-bar" class="hp-fill enemy"></div>
+          </div>
+          <span id="enemy-hp-text">500/500</span>
+        </div>
+      </div>
+
+      <div id="menu-overlay" class="hidden">
+        <div id="menu-panel">
+          <h2>UPGRADE SHOP</h2>
+          
+          <div class="upgrade-section">
+            <h3>ATTACK POWER</h3>
+            <button class="upgrade-btn" data-type="attack" data-unit="small">
+              SMALL +10% (<span class="cost">10</span> COIN)
+            </button>
+            <button class="upgrade-btn" data-type="attack" data-unit="medium">
+              MEDIUM +10% (<span class="cost">10</span> COIN)
+            </button>
+            <button class="upgrade-btn" data-type="attack" data-unit="large">
+              LARGE +10% (<span class="cost">10</span> COIN)
+            </button>
+          </div>
+
+          <div class="upgrade-section">
+            <h3>HIT POINTS</h3>
+            <button class="upgrade-btn" data-type="hp" data-unit="small">
+              SMALL +10% (<span class="cost">10</span> COIN)
+            </button>
+            <button class="upgrade-btn" data-type="hp" data-unit="medium">
+              MEDIUM +10% (<span class="cost">10</span> COIN)
+            </button>
+            <button class="upgrade-btn" data-type="hp" data-unit="large">
+              LARGE +10% (<span class="cost">10</span> COIN)
+            </button>
+          </div>
+
+          <div class="upgrade-section">
+            <h3>SPEED</h3>
+            <button class="upgrade-btn" data-type="speed" data-unit="small">
+              SMALL +10% (<span class="cost">10</span> COIN)
+            </button>
+            <button class="upgrade-btn" data-type="speed" data-unit="medium">
+              MEDIUM +10% (<span class="cost">10</span> COIN)
+            </button>
+            <button class="upgrade-btn" data-type="speed" data-unit="large">
+              LARGE +10% (<span class="cost">10</span> COIN)
+            </button>
+          </div>
+
+          <div class="upgrade-section">
+            <h3>OTHER</h3>
+            <button class="upgrade-btn" data-type="coin_rate" data-unit="">
+              COIN RATE +10% (<span class="cost">10</span> COIN)
+            </button>
+            <button class="upgrade-btn" data-type="base_hp" data-unit="">
+              BASE HP +10% (<span class="cost">10</span> COIN)
+            </button>
+          </div>
+
+          <button id="close-menu-btn" class="pixel-btn">CLOSE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ウィジェット用コンテナ（タスクバー上の戦場ビュー） -->
+    <div id="widget-container" class="hidden">
+      <canvas id="widget-canvas" width="1200" height="80"></canvas>
+    </div>
+  </body>
+</html>
