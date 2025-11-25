@@ -2,6 +2,9 @@
 
 日常の作業(タイピングとクリック)がそのままゲームの戦力になる、新感覚の自動戦闘ゲーム!
 
+<img width="1195" height="601" alt="image" src="https://github.com/user-attachments/assets/b840e293-3559-4f23-af3f-9a87c9156188" />
+
+
 ### 遊び方
 
 - **キーボードでタイプ** → 弱いユニット生成
