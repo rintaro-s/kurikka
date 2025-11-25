@@ -28,6 +28,7 @@
           <span id="click-count">0</span>
         </div>
         <button id="menu-btn" class="pixel-btn">MENU</button>
+        <button id="quit-btn" class="pixel-btn" style="background: #a00;">QUIT</button>
       </div>
 
       <canvas id="game-canvas" width="1200" height="600"></canvas>
@@ -51,9 +52,41 @@
 
       <div id="menu-overlay" class="hidden">
         <div id="menu-panel">
-          <h2>UPGRADE SHOP</h2>
+          <div id="menu-tabs">
+            <button class="tab-btn active" data-tab="shop">SHOP</button>
+            <button class="tab-btn" data-tab="settings">SETTINGS</button>
+          </div>
+
+          <div id="shop-tab" class="tab-content">
+            <h2>UPGRADE SHOP</h2>
+
+            <div class="upgrade-section">
+              <h3>AUTO BUY (5000 COIN)</h3>
+              <p style="font-size: 12px; color: #aaa;">Purchase automatic upgrades for a limited time</p>
+              <select id="auto-buy-type">
+                <option value="">-- Select Upgrade --</option>
+                <option value="attack-small">Small Attack</option>
+                <option value="attack-medium">Medium Attack</option>
+                <option value="attack-large">Large Attack</option>
+                <option value="hp-small">Small HP</option>
+                <option value="hp-medium">Medium HP</option>
+                <option value="hp-large">Large HP</option>
+                <option value="speed-small">Small Speed</option>
+                <option value="speed-medium">Medium Speed</option>
+                <option value="speed-large">Large Speed</option>
+                <option value="coin_rate-">Coin Rate</option>
+                <option value="base_hp-">Base HP</option>
+              </select>
+              <label>
+                Duration (seconds):
+                <input type="number" id="auto-buy-duration" value="60" min="10" max="600" />
+              </label>
+              <button id="auto-buy-start" class="pixel-btn">START (5000 COIN)</button>
+              <button id="auto-buy-stop" class="pixel-btn" style="background-color: #a00;">STOP</button>
+              <div id="auto-buy-status" style="margin-top: 10px; color: #0f0;">Inactive</div>
+            </div>
           
-          <div class="upgrade-section">
+            <div class="upgrade-section">
             <h3>ATTACK POWER</h3>
             <button class="upgrade-btn" data-type="attack" data-unit="small">
               SMALL +10% (<span class="cost">10</span> COIN)
@@ -100,6 +133,40 @@
             <button class="upgrade-btn" data-type="base_hp" data-unit="">
               BASE HP +10% (<span class="cost">10</span> COIN)
             </button>
+          </div>
+          </div>
+
+          <div id="settings-tab" class="tab-content hidden">
+            <h2>SETTINGS</h2>
+            
+            <div class="settings-section">
+              <h3>WIDGET DISPLAY</h3>
+              <label>
+                Y Offset (px):
+                <input type="number" id="widget-offset-input" value="100" min="0" max="2000" />
+              </label>
+              <label>
+                Unit Size:
+                <input type="range" id="widget-size-input" value="6" min="2" max="16" />
+                <span id="widget-size-value">6</span>px
+              </label>
+            </div>
+
+            <div class="settings-section">
+              <h3>MULTIPLAYER</h3>
+              <label>
+                Server URL:
+                <input type="text" id="server-url-input" placeholder="http://localhost:8080" />
+              </label>
+              <label>
+                Player Name:
+                <input type="text" id="player-name-input" placeholder="Your Name" />
+              </label>
+              <button id="mp-register-btn" class="pixel-btn">REGISTER</button>
+              <div id="mp-status">Not Connected</div>
+              <button id="save-settings-btn" class="pixel-btn">SAVE</button>
+              <button id="apply-settings-btn" class="pixel-btn" style="background-color: #0a0;">APPLY NOW</button>
+            </div>
           </div>
 
           <button id="close-menu-btn" class="pixel-btn">CLOSE</button>

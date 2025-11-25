@@ -81,8 +81,28 @@ impl Upgrades {
             ("base_hp", _) => self.base_hp,
             _ => 0,
         };
-        // コストを100倍に
-        1000 + level * 500
+        // 初期値3000、1.2倍ずつ増加
+        (3000.0 * 1.2_f32.powi(level as i32)) as u32
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AutoBuyConfig {
+    pub enabled: bool,
+    pub upgrade_type: String, // "attack", "hp", "speed", "coin_rate", "base_hp"
+    pub unit_type: String,    // "small", "medium", "large", ""
+    #[serde(default)]
+    pub remaining_time: f32, // 残り時間（秒）
+}
+
+impl Default for AutoBuyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            upgrade_type: String::new(),
+            unit_type: String::new(),
+            remaining_time: 0.0,
+        }
     }
 }
 
@@ -99,6 +119,8 @@ pub struct GameState {
     pub click_count: u32,
     pub type_count: u32,
     pub upgrades: Upgrades,
+    #[serde(default)]
+    pub auto_buy: AutoBuyConfig,
     next_unit_id: u32,
     enemy_spawn_timer: f32,
     stage_clear: bool,
@@ -139,6 +161,7 @@ impl GameState {
             click_count: 0,
             type_count: 0,
             upgrades: Upgrades::new(),
+            auto_buy: AutoBuyConfig::default(),
             next_unit_id: 0,
             enemy_spawn_timer: 0.0,
             stage_clear: false,
@@ -426,6 +449,26 @@ impl GameState {
 
         if self.player_base_hp <= 0.0 {
             self.reset_current_stage();
+        }
+
+        // 自動購入処理（時間ベース）
+        if self.auto_buy.remaining_time > 0.0 {
+            self.auto_buy.remaining_time -= delta;
+            if self.auto_buy.remaining_time <= 0.0 {
+                self.auto_buy.remaining_time = 0.0;
+                self.auto_buy.enabled = false;
+            }
+            
+            if self.auto_buy.enabled && !self.auto_buy.upgrade_type.is_empty() {
+                let upgrade_type = self.auto_buy.upgrade_type.clone();
+                let unit_type = self.auto_buy.unit_type.clone();
+                let cost = self.upgrades.get_cost(&upgrade_type, &unit_type);
+                if self.coins >= cost {
+                    let _ = self.purchase_upgrade(&upgrade_type, &unit_type);
+                }
+            }
+        } else {
+            self.auto_buy.enabled = false;
         }
 
         // 定期セーブ

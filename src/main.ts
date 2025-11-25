@@ -42,8 +42,10 @@ interface GameState {
   upgrades: Upgrades;
 }
 
-const UPGRADE_BASE_COST = 1000;
-const UPGRADE_LEVEL_STEP = 500;
+// コスト計算関数（3000 * 1.2^level）
+function calculateUpgradeCost(level: number): number {
+  return Math.floor(3000 * Math.pow(1.2, level));
+}
 
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -53,7 +55,7 @@ let maxPlayerBaseHp = 1000;
 let maxEnemyBaseHp = 500;
 
 // ドット絵描画関数
-function drawPixelUnit(x: number, y: number, type: "Small" | "Medium" | "Large", isPlayer: boolean, hpPercent: number) {
+function drawPixelUnit(x: number, y: number, type: "Small" | "Medium" | "Large", isPlayer: boolean, hpPercent: number, maxHp: number) {
   const color = isPlayer ? "#00ff00" : "#ff0000";
   const hpColor = isPlayer ? "#00aa00" : "#aa0000";
 
@@ -70,8 +72,11 @@ function drawPixelUnit(x: number, y: number, type: "Small" | "Medium" | "Large",
   ctx.fillRect(x - size / 4, y - size / 4, 2, 2);
   ctx.fillRect(x + size / 4 - 2, y - size / 4, 2, 2);
 
-  // HPバー
-  const barWidth = size + 4;
+  // HPバー（MAX HPに応じて幅を調整）
+  const baseBarWidth = size + 4;
+  // MAX HPが大きいほどHPバーも広くする（最大で2倍まで）
+  const barWidthMultiplier = Math.min(1 + Math.log10(Math.max(1, maxHp / 100)), 2);
+  const barWidth = baseBarWidth * barWidthMultiplier;
   const barHeight = 2;
   ctx.fillStyle = "#000";
   ctx.fillRect(x - barWidth / 2, y - size / 2 - 6, barWidth, barHeight);
@@ -148,7 +153,7 @@ function render() {
       const amplitude = 12 + (unit.unit_type === "Small" ? 0 : unit.unit_type === "Medium" ? 4 : 8);
       yOffset = Math.sin(progress * Math.PI) * amplitude;
     }
-    drawPixelUnit(x, unitY - yOffset, unit.unit_type, true, hpPercent);
+    drawPixelUnit(x, unitY - yOffset, unit.unit_type, true, hpPercent, unit.max_hp);
   });
 
   currentGameState.enemy_units.forEach((unit) => {
@@ -160,7 +165,7 @@ function render() {
       const amplitude = 12 + (unit.unit_type === "Small" ? 0 : unit.unit_type === "Medium" ? 4 : 8);
       yOffset = Math.sin(progress * Math.PI) * amplitude;
     }
-    drawPixelUnit(x, unitY - yOffset, unit.unit_type, false, hpPercent);
+    drawPixelUnit(x, unitY - yOffset, unit.unit_type, false, hpPercent, unit.max_hp);
   });
 }
 
@@ -218,7 +223,7 @@ function updateUpgradeCosts(upgrades: Upgrades, coins: number) {
         break;
     }
 
-    const cost = UPGRADE_BASE_COST + level * UPGRADE_LEVEL_STEP;
+    const cost = calculateUpgradeCost(level);
     const costSpan = button.querySelector(".cost")!;
     costSpan.textContent = cost.toString();
 
@@ -234,6 +239,83 @@ async function purchaseUpgrade(upgradeType: string, unitType: string) {
     });
   } catch (error) {
     console.error("Failed to purchase upgrade:", error);
+  }
+}
+
+async function loadSettings() {
+  try {
+    const config: any = await invoke("get_config");
+    const widgetOffsetInput = document.getElementById("widget-offset-input") as HTMLInputElement;
+    const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement;
+    const widgetSizeValue = document.getElementById("widget-size-value")!;
+    const serverUrlInput = document.getElementById("server-url-input") as HTMLInputElement;
+
+    if (widgetOffsetInput) widgetOffsetInput.value = config.widget_y_offset.toString();
+    if (widgetSizeInput) {
+      widgetSizeInput.value = config.widget_unit_size.toString();
+      widgetSizeValue.textContent = config.widget_unit_size.toString();
+    }
+    if (serverUrlInput) serverUrlInput.value = config.multiplayer_server_url;
+  } catch (error) {
+    console.error("Failed to load settings:", error);
+  }
+}
+
+async function saveSettings() {
+  try {
+    const widgetOffsetInput = document.getElementById("widget-offset-input") as HTMLInputElement;
+    const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement;
+    const serverUrlInput = document.getElementById("server-url-input") as HTMLInputElement;
+
+    const config = {
+      widget_y_offset: parseInt(widgetOffsetInput.value),
+      widget_unit_size: parseInt(widgetSizeInput.value),
+      multiplayer_server_url: serverUrlInput.value,
+    };
+
+    await invoke("save_config", { config });
+  } catch (error) {
+    console.error("Failed to save settings:", error);
+  }
+}
+
+async function updateAutoBuyStatus() {
+  try {
+    const autoBuy: any = await invoke("get_auto_buy");
+    const statusDiv = document.getElementById("auto-buy-status")!;
+    
+    if (autoBuy.enabled && autoBuy.remaining_time > 0) {
+      const minutes = Math.floor(autoBuy.remaining_time / 60);
+      const seconds = Math.floor(autoBuy.remaining_time % 60);
+      statusDiv.textContent = `Active: ${minutes}m ${seconds}s remaining`;
+      statusDiv.style.color = "#0f0";
+    } else {
+      statusDiv.textContent = "Inactive";
+      statusDiv.style.color = "#888";
+    }
+  } catch (error) {
+    console.error("Failed to get auto buy status:", error);
+  }
+}
+
+async function applySettings() {
+  try {
+    const widgetOffsetInput = document.getElementById("widget-offset-input") as HTMLInputElement;
+    const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement;
+    const serverUrlInput = document.getElementById("server-url-input") as HTMLInputElement;
+
+    const config = {
+      widget_y_offset: parseInt(widgetOffsetInput.value),
+      widget_unit_size: parseInt(widgetSizeInput.value),
+      multiplayer_server_url: serverUrlInput.value,
+    };
+
+    await invoke("apply_widget_config", { config });
+    
+    // ウィジェットウィンドウに設定変更を通知（リロード）
+    // Note: ウィジェットのunit_sizeは次回起動時に反映
+  } catch (error) {
+    console.error("Failed to apply settings:", error);
   }
 }
 
@@ -253,7 +335,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
-function setupWidget() {
+async function setupWidget() {
   const widgetContainer = document.getElementById("widget-container")!;
   console.log("[setupWidget] widget-container element:", widgetContainer);
   widgetContainer.classList.remove("hidden");
@@ -285,6 +367,16 @@ function setupWidget() {
   window.addEventListener("resize", syncWidgetCanvas);
 
   let currentState: GameState | null = null;
+  let widgetUnitSize = 6; // デフォルト
+
+  // 設定からユニットサイズを取得
+  try {
+    const config: any = await invoke("get_config");
+    widgetUnitSize = config.widget_unit_size || 6;
+    console.log("[setupWidget] Loaded widget_unit_size:", widgetUnitSize);
+  } catch (e) {
+    console.error("[setupWidget] Failed to load config:", e);
+  }
 
   // リアルタイム更新をセットアップ
   const setupRealtimeUpdates = async () => {
@@ -294,7 +386,7 @@ function setupWidget() {
       const initialState = await invoke("get_game_state");
       currentState = initialState as GameState;
       console.log("[setupWidget] Initial state received:", { playerUnits: currentState.player_units.length, enemyUnits: currentState.enemy_units.length });
-      renderWidget(widgetCtx, widgetCanvas, currentState);
+      renderWidget(widgetCtx, widgetCanvas, currentState, widgetUnitSize);
     } catch (e) {
       console.error("[setupWidget] Failed to get initial state:", e);
     }
@@ -309,7 +401,7 @@ function setupWidget() {
           enemyUnits: currentState.enemy_units.length,
           stage: currentState.stage,
         });
-        renderWidget(widgetCtx, widgetCanvas, currentState);
+        renderWidget(widgetCtx, widgetCanvas, currentState, widgetUnitSize);
       });
       console.log("[widget] game-update listener established");
     } catch (e) {
@@ -321,7 +413,7 @@ function setupWidget() {
       try {
         const state = await invoke("get_game_state");
         currentState = state as GameState;
-        renderWidget(widgetCtx, widgetCanvas, currentState);
+        renderWidget(widgetCtx, widgetCanvas, currentState, widgetUnitSize);
       } catch (e) {
         console.error("[widget] Polling failed:", e);
       }
@@ -331,7 +423,7 @@ function setupWidget() {
   setupRealtimeUpdates();
 }
 
-function renderWidget(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, state: GameState) {
+function renderWidget(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, state: GameState, unitSize: number) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const baseline = canvas.height / 2;
@@ -346,7 +438,9 @@ function renderWidget(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, 
 
   state.player_units.forEach((unit) => {
     const x = convertX(unit.position);
-    const size = unit.unit_type === "Small" ? 4 : unit.unit_type === "Medium" ? 6 : 8;
+    // ユニットタイプに応じた相対サイズ
+    const sizeMultiplier = unit.unit_type === "Small" ? 0.7 : unit.unit_type === "Medium" ? 1.0 : 1.4;
+    const size = unitSize * sizeMultiplier;
     // Knockback vertical animation: sinusで少し上がるようにする
     let yOffset = 0;
     if (unit.knockback_time && unit.knockback_total && unit.knockback_total > 0) {
@@ -360,7 +454,8 @@ function renderWidget(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, 
 
   state.enemy_units.forEach((unit) => {
     const x = convertX(unit.position);
-    const size = unit.unit_type === "Small" ? 4 : unit.unit_type === "Medium" ? 6 : 8;
+    const sizeMultiplier = unit.unit_type === "Small" ? 0.7 : unit.unit_type === "Medium" ? 1.0 : 1.4;
+    const size = unitSize * sizeMultiplier;
     let yOffset = 0;
     if (unit.knockback_time && unit.knockback_total && unit.knockback_total > 0) {
       const progress = 1 - unit.knockback_time / unit.knockback_total;
@@ -387,6 +482,28 @@ function setupGame() {
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
 
+  // タブ切り替え
+  const tabButtons = document.querySelectorAll(".tab-btn");
+  tabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const button = btn as HTMLButtonElement;
+      const targetTab = button.dataset.tab!;
+
+      // すべてのタブボタンとコンテンツの状態をリセット
+      tabButtons.forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach((content) => {
+        content.classList.add("hidden");
+      });
+
+      // 選択されたタブをアクティブに
+      button.classList.add("active");
+      document.getElementById(`${targetTab}-tab`)!.classList.remove("hidden");
+    });
+  });
+
+  // 設定のロード
+  loadSettings();
+
   // メニュー表示/非表示
   const menuBtn = document.getElementById("menu-btn")!;
   const closeMenuBtn = document.getElementById("close-menu-btn")!;
@@ -399,6 +516,110 @@ function setupGame() {
   closeMenuBtn.addEventListener("click", () => {
     menuOverlay.classList.add("hidden");
   });
+
+  // 終了ボタン
+  const quitBtn = document.getElementById("quit-btn")!;
+  quitBtn.addEventListener("click", async () => {
+    if (confirm("Are you sure you want to quit?")) {
+      await invoke("exit_app");
+    }
+  });
+
+  // 設定保存ボタン
+  const saveSettingsBtn = document.getElementById("save-settings-btn")!;
+  saveSettingsBtn.addEventListener("click", async () => {
+    await saveSettings();
+    alert("Settings saved!");
+  });
+
+  // 設定即時適用ボタン
+  const applySettingsBtn = document.getElementById("apply-settings-btn")!;
+  applySettingsBtn.addEventListener("click", async () => {
+    await saveSettings();
+    await applySettings();
+    alert("Settings applied!");
+  });
+
+  // ウィジェットサイズのスライダー連動
+  const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement;
+  const widgetSizeValue = document.getElementById("widget-size-value")!;
+  widgetSizeInput.addEventListener("input", () => {
+    widgetSizeValue.textContent = widgetSizeInput.value;
+  });
+
+  // マルチプレイヤー登録ボタン
+  const mpRegisterBtn = document.getElementById("mp-register-btn")!;
+  mpRegisterBtn.addEventListener("click", async () => {
+    const playerNameInput = document.getElementById("player-name-input") as HTMLInputElement;
+    const playerName = playerNameInput.value.trim();
+    
+    if (!playerName) {
+      alert("Please enter a player name");
+      return;
+    }
+
+    try {
+      const playerId = await invoke("mp_register_player", { playerName });
+      document.getElementById("mp-status")!.textContent = `Connected as ${playerName} (ID: ${playerId})`;
+      alert(`Registered successfully! Player ID: ${playerId}`);
+    } catch (error) {
+      alert(`Failed to register: ${error}`);
+    }
+  });
+
+  // 自動購入の状態表示更新
+  updateAutoBuyStatus();
+  setInterval(updateAutoBuyStatus, 1000);
+
+  // 自動購入開始ボタン
+  const autoBuyStartBtn = document.getElementById("auto-buy-start")!;
+  autoBuyStartBtn.addEventListener("click", async () => {
+    const typeSelect = document.getElementById("auto-buy-type") as HTMLSelectElement;
+    const durationInput = document.getElementById("auto-buy-duration") as HTMLInputElement;
+    
+    const selectedValue = typeSelect.value;
+    if (!selectedValue) {
+      alert("Please select an upgrade type");
+      return;
+    }
+    
+    const [upgradeType, unitType] = selectedValue.split("-");
+    const duration = parseInt(durationInput.value);
+    
+    try {
+      await invoke("start_auto_buy", {
+        upgradeType,
+        unitType: unitType || "",
+        durationSeconds: duration,
+      });
+      alert(`Auto-buy started for ${duration} seconds!`);
+    } catch (error) {
+      alert(`Failed to start auto-buy: ${error}`);
+    }
+  });
+
+  // 自動購入停止ボタン
+  const autoBuyStopBtn = document.getElementById("auto-buy-stop")!;
+  autoBuyStopBtn.addEventListener("click", async () => {
+    try {
+      await invoke("stop_auto_buy");
+      alert("Auto-buy stopped!");
+    } catch (error) {
+      alert(`Failed to stop auto-buy: ${error}`);
+    }
+  });
+
+  // マルチプレイヤー状態の定期更新
+  setInterval(async () => {
+    try {
+      const isConnected = await invoke("mp_is_connected");
+      if (isConnected) {
+        await invoke("mp_update_state");
+      }
+    } catch (error) {
+      console.error("Failed to update multiplayer state:", error);
+    }
+  }, 5000); // 5秒ごとに状態を送信
 
   // アップグレードボタン
   const upgradeButtons = document.querySelectorAll(".upgrade-btn");

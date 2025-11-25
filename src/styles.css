@@ -196,6 +196,128 @@ body {
   padding: 12px;
 }
 
+/* タブ切り替え */
+#menu-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #444;
+}
+
+.tab-btn {
+  background-color: #333;
+  border: 2px solid #555;
+  border-bottom: none;
+  color: #aaa;
+  padding: 10px 20px;
+  font-family: "Courier New", monospace;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.tab-btn:hover {
+  background-color: #444;
+}
+
+.tab-btn.active {
+  background-color: #2a2a2a;
+  color: #fff;
+  border-color: #888;
+}
+
+.tab-content {
+  display: block;
+}
+
+.tab-content.hidden {
+  display: none;
+}
+
+/* 設定画面 */
+.settings-section {
+  margin-bottom: 30px;
+  padding: 15px;
+  background-color: #333;
+  border: 2px solid #555;
+}
+
+.settings-section h3 {
+  font-size: 16px;
+  margin-bottom: 15px;
+  color: #aaa;
+  text-transform: uppercase;
+}
+
+.settings-section label {
+  display: block;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+.settings-section input[type="number"],
+.settings-section input[type="text"] {
+  width: 100%;
+  background-color: #222;
+  border: 2px solid #444;
+  color: #fff;
+  padding: 8px;
+  font-family: "Courier New", monospace;
+  font-size: 14px;
+  margin-top: 5px;
+}
+
+.settings-section input[type="range"] {
+  width: 80%;
+  margin-top: 5px;
+  margin-right: 10px;
+}
+
+#widget-size-value {
+  display: inline-block;
+  min-width: 30px;
+  color: #ffff00;
+  font-weight: bold;
+}
+
+#mp-status {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #222;
+  border: 2px solid #444;
+  color: #0f0;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+#mp-register-btn {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+#apply-settings-btn {
+  margin-top: 10px;
+}
+
+#auto-buy-start,
+#auto-buy-stop {
+  margin-top: 10px;
+  margin-right: 10px;
+}
+
+#auto-buy-duration {
+  width: 100%;
+  background-color: #222;
+  border: 2px solid #444;
+  color: #fff;
+  padding: 8px;
+  font-family: "Courier New", monospace;
+  font-size: 14px;
+  margin-top: 5px;
+  margin-bottom: 10px;
+}
+
 /* ウィジェット用スタイル（タスクバー上の戦場ビュー） */
 #widget-container {
   width: 100vw;
