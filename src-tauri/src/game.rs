@@ -29,7 +29,7 @@ pub struct Unit {
     pub knockback_total: f32,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Upgrades {
     // 攻撃力アップグレード（％）
     pub small_attack: u32,
@@ -106,6 +106,15 @@ impl Default for AutoBuyConfig {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct PlayerProgressData {
+    pub stage: u32,
+    pub coins: u32,
+    pub upgrades: Upgrades,
+    pub max_player_base_hp: f32,
+    pub max_enemy_base_hp: f32,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct GameState {
     pub player_units: Vec<Unit>,
@@ -146,6 +155,34 @@ impl GameState {
         let state = Self::fresh();
         state.persist_state();
         state
+    }
+
+    pub fn export_progress(&self) -> PlayerProgressData {
+        PlayerProgressData {
+            stage: self.stage,
+            coins: self.coins,
+            upgrades: self.upgrades.clone(),
+            max_player_base_hp: self.max_player_base_hp,
+            max_enemy_base_hp: self.max_enemy_base_hp,
+        }
+    }
+
+    pub fn import_progress(&mut self, progress: &PlayerProgressData) {
+        self.stage = progress.stage.max(1);
+        self.coins = progress.coins;
+        self.upgrades = progress.upgrades.clone();
+        self.max_player_base_hp = progress.max_player_base_hp.max(100.0);
+        self.player_base_hp = self.max_player_base_hp;
+        self.max_enemy_base_hp = progress.max_enemy_base_hp.max(100.0);
+        self.enemy_base_hp = self.max_enemy_base_hp;
+        self.player_units.clear();
+        self.enemy_units.clear();
+        self.click_count = 0;
+        self.type_count = 0;
+        self.stage_clear = false;
+        self.enemy_spawn_timer = 0.0;
+        self.auto_buy = AutoBuyConfig::default();
+        self.persist_state();
     }
 
     fn fresh() -> Self {
@@ -248,7 +285,8 @@ impl GameState {
     fn spawn_enemy(&mut self) {
         let mut rng = rand::thread_rng();
         // 1000ステージ想定でなだらかに難易度上昇（対数的スケーリング）
-        let stage_multiplier = 1.0 + (self.stage as f32 - 1.0) * 0.05 + ((self.stage as f32).ln() / 10.0) * 0.3;
+        let stage_multiplier =
+            1.0 + (self.stage as f32 - 1.0) * 0.05 + ((self.stage as f32).ln() / 10.0) * 0.3;
 
         let unit_type = if rng.gen_bool(0.7) {
             UnitType::Small
@@ -291,7 +329,7 @@ impl GameState {
             self.enemy_spawn_timer = 0.0;
         }
 
-            // ユニットの移動と戦闘
+        // ユニットの移動と戦闘
         let mut units_to_remove: Vec<u32> = Vec::new();
 
         // ターゲット検出とユニット移動
@@ -315,18 +353,14 @@ impl GameState {
                 }
             }
 
-                // ターゲットを探す
+            // ターゲットを探す
             if unit.target_id.is_none() {
-                if let Some(enemy) = self
-                    .enemy_units
-                    .iter()
-                    .min_by(|a, b| {
-                        (a.position - unit.position)
-                            .abs()
-                            .partial_cmp(&(b.position - unit.position).abs())
-                            .unwrap()
-                    })
-                {
+                if let Some(enemy) = self.enemy_units.iter().min_by(|a, b| {
+                    (a.position - unit.position)
+                        .abs()
+                        .partial_cmp(&(b.position - unit.position).abs())
+                        .unwrap()
+                }) {
                     unit.target_id = Some(enemy.id);
                 }
             }
@@ -386,16 +420,12 @@ impl GameState {
             }
 
             if unit.target_id.is_none() {
-                if let Some(player) = self
-                    .player_units
-                    .iter()
-                    .min_by(|a, b| {
-                        (a.position - unit.position)
-                            .abs()
-                            .partial_cmp(&(b.position - unit.position).abs())
-                            .unwrap()
-                    })
-                {
+                if let Some(player) = self.player_units.iter().min_by(|a, b| {
+                    (a.position - unit.position)
+                        .abs()
+                        .partial_cmp(&(b.position - unit.position).abs())
+                        .unwrap()
+                }) {
                     unit.target_id = Some(player.id);
                 }
             }
@@ -435,8 +465,10 @@ impl GameState {
         }
 
         // 死亡したユニットを削除
-        self.player_units.retain(|u| !units_to_remove.contains(&u.id));
-        self.enemy_units.retain(|u| !units_to_remove.contains(&u.id));
+        self.player_units
+            .retain(|u| !units_to_remove.contains(&u.id));
+        self.enemy_units
+            .retain(|u| !units_to_remove.contains(&u.id));
 
         // 勝敗判定
         if self.enemy_base_hp <= 0.0 && !self.stage_clear {
@@ -458,7 +490,7 @@ impl GameState {
                 self.auto_buy.remaining_time = 0.0;
                 self.auto_buy.enabled = false;
             }
-            
+
             if self.auto_buy.enabled && !self.auto_buy.upgrade_type.is_empty() {
                 let upgrade_type = self.auto_buy.upgrade_type.clone();
                 let unit_type = self.auto_buy.unit_type.clone();
@@ -500,7 +532,11 @@ impl GameState {
         self.persist_state();
     }
 
-    pub fn purchase_upgrade(&mut self, upgrade_type: &str, unit_type: &str) -> Result<bool, String> {
+    pub fn purchase_upgrade(
+        &mut self,
+        upgrade_type: &str,
+        unit_type: &str,
+    ) -> Result<bool, String> {
         let cost = self.upgrades.get_cost(upgrade_type, unit_type);
 
         if self.coins < cost {

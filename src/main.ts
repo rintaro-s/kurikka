@@ -53,6 +53,7 @@ const ctx = canvas.getContext("2d")!;
 let currentGameState: GameState | null = null;
 let maxPlayerBaseHp = 1000;
 let maxEnemyBaseHp = 500;
+let cachedConfig: any = null;
 
 // ドット絵描画関数
 function drawPixelUnit(x: number, y: number, type: "Small" | "Medium" | "Large", isPlayer: boolean, hpPercent: number, maxHp: number) {
@@ -245,10 +246,12 @@ async function purchaseUpgrade(upgradeType: string, unitType: string) {
 async function loadSettings() {
   try {
     const config: any = await invoke("get_config");
+    cachedConfig = config;
     const widgetOffsetInput = document.getElementById("widget-offset-input") as HTMLInputElement;
     const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement;
     const widgetSizeValue = document.getElementById("widget-size-value")!;
     const serverUrlInput = document.getElementById("server-url-input") as HTMLInputElement;
+    const playerNameInput = document.getElementById("player-name-input") as HTMLInputElement;
 
     if (widgetOffsetInput) widgetOffsetInput.value = config.widget_y_offset.toString();
     if (widgetSizeInput) {
@@ -256,24 +259,40 @@ async function loadSettings() {
       widgetSizeValue.textContent = config.widget_unit_size.toString();
     }
     if (serverUrlInput) serverUrlInput.value = config.multiplayer_server_url;
+    if (playerNameInput) playerNameInput.value = config.multiplayer_player_name || "";
   } catch (error) {
     console.error("Failed to load settings:", error);
   }
 }
 
+function parseNumberInput(value: string, fallback: number): number {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function buildConfigFromInputs() {
+  const widgetOffsetInput = document.getElementById("widget-offset-input") as HTMLInputElement | null;
+  const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement | null;
+  const serverUrlInput = document.getElementById("server-url-input") as HTMLInputElement | null;
+  const playerNameInput = document.getElementById("player-name-input") as HTMLInputElement | null;
+
+  const fallbackOffset = cachedConfig?.widget_y_offset ?? 100;
+  const fallbackSize = cachedConfig?.widget_unit_size ?? 6;
+
+  return {
+    widget_y_offset: parseNumberInput(widgetOffsetInput?.value ?? `${fallbackOffset}`, fallbackOffset),
+    widget_unit_size: parseNumberInput(widgetSizeInput?.value ?? `${fallbackSize}`, fallbackSize),
+    multiplayer_server_url: (serverUrlInput?.value || "").trim(),
+    multiplayer_player_name: (playerNameInput?.value || "").trim(),
+    multiplayer_player_id: cachedConfig?.multiplayer_player_id || "",
+  };
+}
+
 async function saveSettings() {
   try {
-    const widgetOffsetInput = document.getElementById("widget-offset-input") as HTMLInputElement;
-    const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement;
-    const serverUrlInput = document.getElementById("server-url-input") as HTMLInputElement;
-
-    const config = {
-      widget_y_offset: parseInt(widgetOffsetInput.value),
-      widget_unit_size: parseInt(widgetSizeInput.value),
-      multiplayer_server_url: serverUrlInput.value,
-    };
-
+    const config = buildConfigFromInputs();
     await invoke("save_config", { config });
+    cachedConfig = config;
   } catch (error) {
     console.error("Failed to save settings:", error);
   }
@@ -300,18 +319,9 @@ async function updateAutoBuyStatus() {
 
 async function applySettings() {
   try {
-    const widgetOffsetInput = document.getElementById("widget-offset-input") as HTMLInputElement;
-    const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement;
-    const serverUrlInput = document.getElementById("server-url-input") as HTMLInputElement;
-
-    const config = {
-      widget_y_offset: parseInt(widgetOffsetInput.value),
-      widget_unit_size: parseInt(widgetSizeInput.value),
-      multiplayer_server_url: serverUrlInput.value,
-    };
-
+    const config = buildConfigFromInputs();
     await invoke("apply_widget_config", { config });
-    
+    cachedConfig = config;
     // ウィジェットウィンドウに設定変更を通知（リロード）
     // Note: ウィジェットのunit_sizeは次回起動時に反映
   } catch (error) {
@@ -504,6 +514,22 @@ function setupGame() {
   // 設定のロード
   loadSettings();
 
+  const serverUrlInput = document.getElementById("server-url-input") as HTMLInputElement;
+  const playerNameInput = document.getElementById("player-name-input") as HTMLInputElement;
+  const mpStatus = document.getElementById("mp-status") as HTMLDivElement;
+  const mpLastSync = document.getElementById("mp-last-sync") as HTMLDivElement;
+  const setMpStatus = (message: string, color = "#ffdf6b") => {
+    if (mpStatus) {
+      mpStatus.textContent = message;
+      mpStatus.style.color = color;
+    }
+  };
+  const updateSyncLabel = (prefix: string) => {
+    if (mpLastSync) {
+      mpLastSync.textContent = `${prefix}: ${new Date().toLocaleTimeString()}`;
+    }
+  };
+
   // メニュー表示/非表示
   const menuBtn = document.getElementById("menu-btn")!;
   const closeMenuBtn = document.getElementById("close-menu-btn")!;
@@ -540,6 +566,24 @@ function setupGame() {
     alert("Settings applied!");
   });
 
+  const testServerBtn = document.getElementById("test-server-btn") as HTMLButtonElement;
+  testServerBtn.addEventListener("click", async () => {
+    const serverUrl = serverUrlInput.value.trim();
+    if (!serverUrl) {
+      alert("Please enter a server URL first.");
+      return;
+    }
+    setMpStatus("Pinging server...", "#cccccc");
+    await saveSettings();
+    try {
+      await invoke("mp_health_check");
+      setMpStatus("Server reachable ✔", "#0f0");
+      updateSyncLabel("Last ping");
+    } catch (error) {
+      setMpStatus(`Server error: ${error}`, "#ff6666");
+    }
+  });
+
   // ウィジェットサイズのスライダー連動
   const widgetSizeInput = document.getElementById("widget-size-input") as HTMLInputElement;
   const widgetSizeValue = document.getElementById("widget-size-value")!;
@@ -550,20 +594,31 @@ function setupGame() {
   // マルチプレイヤー登録ボタン
   const mpRegisterBtn = document.getElementById("mp-register-btn")!;
   mpRegisterBtn.addEventListener("click", async () => {
-    const playerNameInput = document.getElementById("player-name-input") as HTMLInputElement;
+    const serverUrl = serverUrlInput.value.trim();
     const playerName = playerNameInput.value.trim();
-    
+
+    if (!serverUrl) {
+      alert("Please enter the server URL first.");
+      return;
+    }
+
     if (!playerName) {
       alert("Please enter a player name");
       return;
     }
 
+    setMpStatus("Connecting to server...", "#cccccc");
+
     try {
-      const playerId = await invoke("mp_register_player", { playerName });
-      document.getElementById("mp-status")!.textContent = `Connected as ${playerName} (ID: ${playerId})`;
-      alert(`Registered successfully! Player ID: ${playerId}`);
+      await saveSettings();
+      const result: any = await invoke("mp_register_player", { playerName });
+      setMpStatus(`${result.message} (Stage ${result.stage}, Coins ${result.coins})`, "#0f0");
+      updateSyncLabel("Last sync");
+      alert(`Connected as ${result.player_name}!`);
+      await loadSettings();
     } catch (error) {
-      alert(`Failed to register: ${error}`);
+      setMpStatus(`Failed to connect: ${error}`, "#ff6666");
+      alert(`Failed to connect: ${error}`);
     }
   });
 
@@ -610,11 +665,21 @@ function setupGame() {
   });
 
   // マルチプレイヤー状態の定期更新
+  let pullToggle = 0;
   setInterval(async () => {
     try {
-      const isConnected = await invoke("mp_is_connected");
+      const isConnected = await invoke<boolean>("mp_is_connected");
       if (isConnected) {
         await invoke("mp_update_state");
+        updateSyncLabel("Last push");
+        pullToggle = (pullToggle + 1) % 2;
+        if (pullToggle === 0) {
+          const applied = await invoke<boolean>("mp_pull_state");
+          if (applied) {
+            setMpStatus("Remote progress applied ✔", "#8fe78f");
+            updateSyncLabel("Last pull");
+          }
+        }
       }
     } catch (error) {
       console.error("Failed to update multiplayer state:", error);

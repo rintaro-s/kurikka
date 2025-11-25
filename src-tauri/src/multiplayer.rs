@@ -1,6 +1,7 @@
+use crate::game::PlayerProgressData;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerInfo {
@@ -9,16 +10,17 @@ pub struct PlayerInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GameUpdate {
-    pub stage: i32,
-    pub coins: i32,
-    pub player_units_count: usize,
-    pub enemy_units_count: usize,
+pub struct PlayerProfile {
+    pub player_id: String,
+    pub player_name: String,
+    pub progress: PlayerProgressData,
+    pub last_update: i64,
 }
 
 pub struct MultiplayerClient {
     server_url: Arc<Mutex<String>>,
     player_info: Arc<Mutex<Option<PlayerInfo>>>,
+    last_remote_update: Arc<Mutex<Option<i64>>>,
     http_client: reqwest::Client,
 }
 
@@ -27,6 +29,7 @@ impl MultiplayerClient {
         Self {
             server_url: Arc::new(Mutex::new(String::new())),
             player_info: Arc::new(Mutex::new(None)),
+            last_remote_update: Arc::new(Mutex::new(None)),
             http_client: reqwest::Client::new(),
         }
     }
@@ -43,7 +46,7 @@ impl MultiplayerClient {
         !self.get_server_url().is_empty() && self.player_info.lock().is_some()
     }
 
-    pub async fn register_player(&self, player_name: String) -> Result<String, String> {
+    pub async fn register_player(&self, player_name: String) -> Result<RegisterResult, String> {
         let server_url = self.get_server_url();
         if server_url.is_empty() {
             return Err("No server URL configured".to_string());
@@ -54,16 +57,13 @@ impl MultiplayerClient {
             player_name: String,
         }
 
-        #[derive(Deserialize)]
-        struct RegisterResponse {
-            player_id: String,
-            message: String,
-        }
-
         let url = format!("{}/api/player/register", server_url);
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
-            .json(&RegisterRequest { player_name: player_name.clone() })
+            .json(&RegisterRequest {
+                player_name: player_name.clone(),
+            })
             .send()
             .await
             .map_err(|e| format!("Failed to register player: {}", e))?;
@@ -72,39 +72,64 @@ impl MultiplayerClient {
             return Err(format!("Server returned error: {}", response.status()));
         }
 
-        let register_response: RegisterResponse = response.json().await
+        let register_response: RegisterResponse = response
+            .json()
+            .await
             .map_err(|e| format!("Failed to parse response: {}", e))?;
 
         *self.player_info.lock() = Some(PlayerInfo {
             player_id: register_response.player_id.clone(),
             player_name,
         });
+        *self.last_remote_update.lock() = Some(register_response.last_update);
 
-        Ok(register_response.player_id)
+        Ok(RegisterResult {
+            player_id: register_response.player_id,
+            player_name: register_response.player_name,
+            message: register_response.message,
+            progress: register_response.progress,
+            last_update: register_response.last_update,
+        })
     }
 
-    pub async fn update_game_state(&self, update: GameUpdate) -> Result<(), String> {
-        let player_info = self.player_info.lock().clone();
-        let player_info = player_info.ok_or("Not registered to server")?;
-
+    pub async fn sync_progress(
+        &self,
+        progress: &PlayerProgressData,
+    ) -> Result<PlayerProfile, String> {
+        let info = self
+            .player_info
+            .lock()
+            .clone()
+            .ok_or("Not registered to server")?;
         let server_url = self.get_server_url();
         if server_url.is_empty() {
             return Err("No server URL configured".to_string());
         }
 
-        let url = format!("{}/api/player/{}/update", server_url, player_info.player_id);
-        let response = self.http_client
+        #[derive(Serialize)]
+        struct SyncRequest<'a> {
+            progress: &'a PlayerProgressData,
+        }
+
+        let url = format!("{}/api/player/{}/sync", server_url, info.player_id);
+        let response = self
+            .http_client
             .post(&url)
-            .json(&update)
+            .json(&SyncRequest { progress })
             .send()
             .await
-            .map_err(|e| format!("Failed to update state: {}", e))?;
+            .map_err(|e| format!("Failed to sync state: {}", e))?;
 
         if !response.status().is_success() {
             return Err(format!("Server returned error: {}", response.status()));
         }
 
-        Ok(())
+        let profile: PlayerProfile = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+        *self.last_remote_update.lock() = Some(profile.last_update);
+        Ok(profile)
     }
 
     pub async fn get_all_players(&self) -> Result<Vec<serde_json::Value>, String> {
@@ -114,7 +139,8 @@ impl MultiplayerClient {
         }
 
         let url = format!("{}/api/players", server_url);
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(&url)
             .send()
             .await
@@ -124,9 +150,95 @@ impl MultiplayerClient {
             return Err(format!("Server returned error: {}", response.status()));
         }
 
-        let players: Vec<serde_json::Value> = response.json().await
+        let players: Vec<serde_json::Value> = response
+            .json()
+            .await
             .map_err(|e| format!("Failed to parse response: {}", e))?;
 
         Ok(players)
     }
+
+    pub async fn fetch_profile(&self) -> Result<PlayerProfile, String> {
+        let info = self
+            .player_info
+            .lock()
+            .clone()
+            .ok_or("Not registered to server")?;
+        let server_url = self.get_server_url();
+        if server_url.is_empty() {
+            return Err("No server URL configured".to_string());
+        }
+
+        let url = format!("{}/api/player/{}", server_url, info.player_id);
+        let response = self
+            .http_client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch profile: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("Server returned error: {}", response.status()));
+        }
+
+        let profile: PlayerProfile = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+        Ok(profile)
+    }
+
+    pub async fn health_check(&self) -> Result<String, String> {
+        let server_url = self.get_server_url();
+        if server_url.is_empty() {
+            return Err("No server URL configured".to_string());
+        }
+
+        let url = format!("{}/health", server_url);
+        let response = self
+            .http_client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to reach server: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("Server returned error: {}", response.status()));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        Ok(json.to_string())
+    }
+
+    pub fn mark_remote_update(&self, timestamp: i64) -> bool {
+        let mut guard = self.last_remote_update.lock();
+        if guard.map_or(true, |current| timestamp > current) {
+            *guard = Some(timestamp);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RegisterResponse {
+    player_id: String,
+    player_name: String,
+    message: String,
+    progress: PlayerProgressData,
+    last_update: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RegisterResult {
+    pub player_id: String,
+    pub player_name: String,
+    pub message: String,
+    pub progress: PlayerProgressData,
+    pub last_update: i64,
 }

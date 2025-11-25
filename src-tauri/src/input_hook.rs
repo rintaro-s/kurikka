@@ -33,18 +33,16 @@ impl InputCounter {
 }
 
 pub fn start_input_hook(counter: Arc<Mutex<InputCounter>>) {
-    let callback = move |event: Event| {
-        match event.event_type {
-            EventType::ButtonPress(_) => {
-                let mut counter = counter.lock();
-                counter.add_click();
-            }
-            EventType::KeyPress(_) => {
-                let mut counter = counter.lock();
-                counter.add_type();
-            }
-            _ => {}
+    let callback = move |event: Event| match event.event_type {
+        EventType::ButtonPress(_) => {
+            let mut counter = counter.lock();
+            counter.add_click();
         }
+        EventType::KeyPress(_) => {
+            let mut counter = counter.lock();
+            counter.add_type();
+        }
+        _ => {}
     };
 
     if let Err(error) = listen(callback) {

@@ -4,15 +4,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WindowEvent};
 
+mod config;
 mod game;
 mod input_hook;
-mod config;
 mod multiplayer;
 
-use game::{GameState, Unit, UnitType, AutoBuyConfig};
-use input_hook::InputCounter;
 use config::AppConfig;
-use multiplayer::{MultiplayerClient, GameUpdate};
+use game::{AutoBuyConfig, GameState, Unit, UnitType};
+use input_hook::InputCounter;
+use multiplayer::MultiplayerClient;
 
 #[derive(Clone, Serialize)]
 struct GameStateUpdate {
@@ -25,6 +25,16 @@ struct GameStateUpdate {
     click_count: u32,
     type_count: u32,
     upgrades: game::Upgrades,
+}
+
+#[derive(Clone, Serialize)]
+struct RegisterCommandResponse {
+    player_id: String,
+    player_name: String,
+    message: String,
+    last_update: i64,
+    stage: u32,
+    coins: u32,
 }
 
 #[tauri::command]
@@ -75,10 +85,7 @@ fn save_config(
 }
 
 #[tauri::command]
-fn apply_widget_config(
-    app: tauri::AppHandle,
-    config: AppConfig,
-) -> Result<(), String> {
+fn apply_widget_config(app: tauri::AppHandle, config: AppConfig) -> Result<(), String> {
     if let Some(widget_window) = app.get_webview_window("widget") {
         if let Ok(Some(monitor)) = widget_window.current_monitor() {
             let monitor_pos = monitor.position();
@@ -91,7 +98,7 @@ fn apply_widget_config(
 
             let _ = widget_window.set_size(Size::Physical(PhysicalSize::new(width, height)));
             let _ = widget_window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
-            
+
             Ok(())
         } else {
             Err("Failed to get monitor info".to_string())
@@ -104,9 +111,29 @@ fn apply_widget_config(
 #[tauri::command]
 async fn mp_register_player(
     mp_client: tauri::State<'_, Arc<MultiplayerClient>>,
+    game_state: tauri::State<'_, Arc<Mutex<GameState>>>,
     player_name: String,
-) -> Result<String, String> {
-    mp_client.register_player(player_name).await
+) -> Result<RegisterCommandResponse, String> {
+    let register_result = mp_client.register_player(player_name).await?;
+
+    {
+        let mut game = game_state.lock();
+        game.import_progress(&register_result.progress);
+    }
+
+    let mut config = AppConfig::load();
+    config.multiplayer_player_name = register_result.player_name.clone();
+    config.multiplayer_player_id = register_result.player_id.clone();
+    let _ = config.save();
+
+    Ok(RegisterCommandResponse {
+        player_id: register_result.player_id,
+        player_name: register_result.player_name,
+        message: register_result.message,
+        last_update: register_result.last_update,
+        stage: register_result.progress.stage,
+        coins: register_result.progress.coins,
+    })
 }
 
 #[tauri::command]
@@ -114,17 +141,13 @@ async fn mp_update_state(
     mp_client: tauri::State<'_, Arc<MultiplayerClient>>,
     game_state: tauri::State<'_, Arc<Mutex<GameState>>>,
 ) -> Result<(), String> {
-    let update = {
+    let progress = {
         let game = game_state.lock();
-        GameUpdate {
-            stage: game.stage as i32,
-            coins: game.coins as i32,
-            player_units_count: game.player_units.len(),
-            enemy_units_count: game.enemy_units.len(),
-        }
-    }; // game is dropped here
-    
-    mp_client.update_game_state(update).await
+        game.export_progress()
+    };
+
+    let _ = mp_client.sync_progress(&progress).await?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -135,9 +158,29 @@ async fn mp_get_players(
 }
 
 #[tauri::command]
-fn mp_is_connected(
+async fn mp_pull_state(
     mp_client: tauri::State<'_, Arc<MultiplayerClient>>,
-) -> bool {
+    game_state: tauri::State<'_, Arc<Mutex<GameState>>>,
+) -> Result<bool, String> {
+    let profile = mp_client.fetch_profile().await?;
+    if mp_client.mark_remote_update(profile.last_update) {
+        let mut game = game_state.lock();
+        game.import_progress(&profile.progress);
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+async fn mp_health_check(
+    mp_client: tauri::State<'_, Arc<MultiplayerClient>>,
+) -> Result<String, String> {
+    mp_client.health_check().await
+}
+
+#[tauri::command]
+fn mp_is_connected(mp_client: tauri::State<'_, Arc<MultiplayerClient>>) -> bool {
     mp_client.is_connected()
 }
 
@@ -149,13 +192,13 @@ fn start_auto_buy(
     duration_seconds: f32,
 ) -> Result<(), String> {
     let mut game = state.lock();
-    
+
     // 自動購入のコスト: 5000コイン
     let auto_buy_cost = 5000;
     if game.coins < auto_buy_cost {
         return Err("Not enough coins for auto-buy".to_string());
     }
-    
+
     game.coins -= auto_buy_cost;
     game.auto_buy = AutoBuyConfig {
         enabled: true,
@@ -163,22 +206,18 @@ fn start_auto_buy(
         unit_type,
         remaining_time: duration_seconds,
     };
-    
+
     Ok(())
 }
 
 #[tauri::command]
-fn get_auto_buy(
-    state: tauri::State<Arc<Mutex<GameState>>>,
-) -> AutoBuyConfig {
+fn get_auto_buy(state: tauri::State<Arc<Mutex<GameState>>>) -> AutoBuyConfig {
     let game = state.lock();
     game.auto_buy.clone()
 }
 
 #[tauri::command]
-fn stop_auto_buy(
-    state: tauri::State<Arc<Mutex<GameState>>>,
-) -> Result<(), String> {
+fn stop_auto_buy(state: tauri::State<Arc<Mutex<GameState>>>) -> Result<(), String> {
     let mut game = state.lock();
     game.auto_buy.enabled = false;
     game.auto_buy.remaining_time = 0.0;
@@ -207,14 +246,14 @@ pub fn run() {
     let input_counter_clone = Arc::clone(&input_counter);
 
     tauri::Builder::default()
-            .plugin(tauri_plugin_opener::init())
-            .on_window_event(|window, event| {
-                if let WindowEvent::CloseRequested { .. } = event {
-                    if window.label() == "main" {
-                        window.app_handle().exit(0);
-                    }
+        .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { .. } = event {
+                if window.label() == "main" {
+                    window.app_handle().exit(0);
                 }
-            })
+            }
+        })
         .manage(game_state)
         .manage(input_counter)
         .manage(mp_client)
@@ -228,6 +267,8 @@ pub fn run() {
             mp_register_player,
             mp_update_state,
             mp_get_players,
+            mp_pull_state,
+            mp_health_check,
             mp_is_connected,
             start_auto_buy,
             get_auto_buy,
@@ -256,11 +297,15 @@ pub fn run() {
                     let fallback_offset = config.widget_y_offset;
                     y -= fallback_offset;
 
-                    println!("[widget] monitor pos={:?} size={:?} x={} y={} width={} height={}", monitor_pos, monitor_size, x, y, width, height);
+                    println!(
+                        "[widget] monitor pos={:?} size={:?} x={} y={} width={} height={}",
+                        monitor_pos, monitor_size, x, y, width, height
+                    );
 
-                    let _ = widget_window.set_size(Size::Physical(PhysicalSize::new(width, height)));
-                    let _ = widget_window
-                        .set_position(Position::Physical(PhysicalPosition::new(x, y)));
+                    let _ =
+                        widget_window.set_size(Size::Physical(PhysicalSize::new(width, height)));
+                    let _ =
+                        widget_window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
                 } else {
                     println!("[widget] current_monitor not found; fallback to primary_monitor");
                     if let Ok(Some(monitor)) = app_handle.primary_monitor() {
@@ -271,7 +316,8 @@ pub fn run() {
                         let x = monitor_pos.x;
                         let mut y = monitor_pos.y + monitor_size.height as i32 - height as i32;
                         y -= config.widget_y_offset;
-                        let _ = widget_window.set_size(Size::Physical(PhysicalSize::new(width, height)));
+                        let _ = widget_window
+                            .set_size(Size::Physical(PhysicalSize::new(width, height)));
                         let _ = widget_window
                             .set_position(Position::Physical(PhysicalPosition::new(x, y)));
                     }

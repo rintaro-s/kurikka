@@ -154,16 +154,20 @@
 
             <div class="settings-section">
               <h3>MULTIPLAYER</h3>
+              <p class="hint">STEP 1: Enter the server URL and test the connection.</p>
               <label>
                 Server URL:
                 <input type="text" id="server-url-input" placeholder="http://localhost:8080" />
               </label>
+              <button id="test-server-btn" class="pixel-btn" style="background-color: #2e7dff;">TEST SERVER</button>
+              <p class="hint">STEP 2: Choose a player name (your shared account).</p>
               <label>
                 Player Name:
                 <input type="text" id="player-name-input" placeholder="Your Name" />
               </label>
-              <button id="mp-register-btn" class="pixel-btn">REGISTER</button>
-              <div id="mp-status">Not Connected</div>
+              <button id="mp-register-btn" class="pixel-btn">CONNECT / SYNC</button>
+              <div id="mp-status" class="status-line">STEP 3: Not connected</div>
+              <div id="mp-last-sync" class="status-line" style="color: #85c5ff;">Last sync: never</div>
               <button id="save-settings-btn" class="pixel-btn">SAVE</button>
               <button id="apply-settings-btn" class="pixel-btn" style="background-color: #0a0;">APPLY NOW</button>
             </div>
